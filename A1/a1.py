@@ -115,15 +115,17 @@ def run(l, n_batch, eta, n_epochs):
     W, b = initialize()
     W, train_acc, train_loss, val_acc, val_loss, test_acc, test_loss = miniBatch(W,b,l,n_epochs,n_batch,eta)
 
-    print("Final test accuracy: " + str(test_acc))
+    print("Final test accuracy: " + str(test_acc*100) + " %")
     print("Final test loss: " + str(test_loss))
-
+    
+    plt.rcParams['figure.dpi'] = 100
+    
     plt.figure(1)
     plt.plot(train_loss, "r-", label="Training Data")
     plt.plot(val_loss, "b-", label="Validation Data")
-    plt.title("Cost Function")
-    plt.xlabel("Epochs")
-    plt.ylabel("Costs")
+    plt.title("Loss Per Epoch")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
     plt.legend()
     plt.grid("true")
     plt.show()
@@ -131,8 +133,8 @@ def run(l, n_batch, eta, n_epochs):
     plt.figure(2)
     plt.plot(train_acc, "r-", label="Training Data")
     plt.plot(val_acc, "b-", label="Validation Data")
-    plt.title("Accuracy")
-    plt.xlabel("Epochs")
+    plt.title("Accuracy Per Epoch")
+    plt.xlabel("Epoch")
     plt.ylabel("Accuracy (%)")
     plt.legend()
     plt.grid("true")
@@ -143,10 +145,9 @@ def run(l, n_batch, eta, n_epochs):
         plt.subplot(2, 5, i+1)
         plt.imshow(np.rot90(np.reshape((j - j.min()) / (j.max() - j.min()), (32, 32, 3), order='F'), k=3))
         plt.axis("off")
-
     plt.show()
 
 if __name__ == "__main__":
-    # compareGradients(X[:500,0:100], Y[:,0:100], W[:,:500],l,b)
+    compareGradients(X[:500,0:100], Y[:,0:100], W[:,:500],l,b)
     run(0,100,0.01,40)
 
