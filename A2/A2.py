@@ -155,12 +155,6 @@ def getData(data_set):
     
 def miniBatch(W1, W2, b1, b2, l, eta, n_s, n_cycles, data_set):
     X, Y, y, X_val, Y_val, y_val, X_test, Y_test, y_test = getData(data_set)
-    print(X.shape)
-    print(Y.shape)
-    print(y.shape)
-    print(X_val.shape)
-    print(Y_val.shape)
-    print(y_val.shape)
 
     train_acc = []
     train_loss = []
@@ -250,10 +244,43 @@ def run(l, eta, n_s, n_cycles, data_set):
     plt.grid("true")
     plt.show()
 
+def courseToFineSearch(n_lambda,lambda_min,lambda_max,eta,n_cycles,data_set):
+    lambda_range = lambda_max - lambda_min
+    n_s = 2 * math.floor(45000 / n_batch)
+    
+    lambdas = []
+    testAcc = []
+    trainAcc = []
+    valAcc = []
+
+    for i in range(n_lambda):
+        print(str(i) + " ", end="")
+        W1,W2,b1,b2 = initialize()
+        _lambda = math.pow(10,lambda_min + lambda_range * np.random.rand())
+        train_acc, train_loss, train_cost, val_acc, val_loss, val_cost, test_acc, test_loss, iterations = miniBatch(W1,W2,b1,b2,_lambda,eta,n_s,n_cycles,data_set)
+        lambdas.append(_lambda)
+        testAcc.append(test_acc)
+        trainAcc.append(max(train_acc))
+        valAcc.append(max(val_acc))
+    
+    results = sorted(zip(valAcc,testAcc,trainAcc,lambdas), reverse=True)[:3]
+    print()
+    print("Three Best Performing Networks (by validation accuracy) ")
+    print("eta = " + str(eta) + ", n_cycles = " + str(n_cycles) + ", n_s = " + str(n_s))
+    print("---")
+
+    for valacc,testacc,trainacc,_l in results:
+        print("Lambda: " + str(_l))
+        print("Test Accuracy: " + str(testacc))
+        print("Best Validation Accuracy: " + str(valacc))
+        print("Best Training Accuracy: " + str(trainacc))
+        print()
+
 if __name__ == "__main__":
     # X,Y,y = loadBatch("data_batch_1")
     # W1,W2,b1,b2 = initialize()
     # compareGradients(X[:20,0:2], Y[:,0:2], W1[:,0:20], W2, b1, b2, 0)
     # # compareGradients(X[:500,0:100], Y[:,0:100], W[:,:500],l,b)
-    run(0.01,0.01,800,3,"big")
+    # run(0.01,0.01,800,3,"big")
+    courseToFineSearch(15,-5, -1, 0.01, 2, "big")
 
