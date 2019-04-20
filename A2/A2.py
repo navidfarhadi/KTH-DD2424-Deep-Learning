@@ -1,12 +1,16 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import pickle
+import math
 
 N = 10000
 d = 3072
 k = 10
 m = 50
 eps = np.finfo(float).eps
+eta_min = 1e-5
+eta_max = 1e-1
+n_batch = 100
 
 def loadBatch(filename):
     with open("./cifar-10-batches-py/" + filename, 'rb') as fo:
@@ -117,39 +121,99 @@ def compareGradients(X,Y,W1,W2,b1,b2,l):
     print("Relative error for b1: " + str(np.abs(grad_b1 - grad_b1_num).sum()))
     print("Relative error for b2: " + str(np.abs(grad_b2 - grad_b2_num).sum()))
 
-def miniBatch(W, b, l, n_epochs, n_batch, eta):
-    X, Y, y = loadBatch("data_batch_1")
-    X_val, Y_val, y_val = loadBatch("data_batch_2")
+def cycleETA(t, l_cycles, n_s, eta):
+    eta_lower = 2*l_cycles*n_s
+    eta_mid = (2*l_cycles + 1) * n_s
+    eta_upper = 2*(l_cycles + 1) * n_s
+    eta_range = eta_max - eta_min
+
+    if (eta_lower <= t) and (t <= eta_mid):
+        eta = eta_min + eta_range*(t-eta_lower)/n_s
+    elif (eta_mid <= t) and (t <= eta_upper):
+        eta = eta_max - eta_range*(t-eta_mid)/n_s
+    
+    return eta
+
+def getData(data_set):
+    if data_set == "big":
+        X,Y,y = loadBatch("data_batch_1")
+        for i in range(2,6):
+            X_temp, Y_temp, y_temp = loadBatch("data_batch_" + str(i))
+            X = np.append(X,X_temp,axis=1)
+            Y = np.append(Y,Y_temp,axis=1)
+            y = np.append(y,y_temp,axis=0)
+        X,X_val = np.split(X,[45000],axis=1)
+        Y,Y_val = np.split(Y,[45000],axis=1)
+        y,y_val = np.split(y,[45000],axis=0)
+    else:
+        X, Y, y = loadBatch("data_batch_1")
+        X_val, Y_val, y_val = loadBatch("data_batch_2")
+    
     X_test, Y_test, y_test = loadBatch("test_batch")
+
+    return X, Y, y, X_val, Y_val, y_val, X_test, Y_test, y_test
+    
+def miniBatch(W1, W2, b1, b2, l, eta, n_s, n_cycles, data_set):
+    X, Y, y, X_val, Y_val, y_val, X_test, Y_test, y_test = getData(data_set)
+    print(X.shape)
+    print(Y.shape)
+    print(y.shape)
+    print(X_val.shape)
+    print(Y_val.shape)
+    print(y_val.shape)
 
     train_acc = []
     train_loss = []
+    train_cost = []
     val_acc = []
     val_loss = []
+    val_cost = []
+    iterations = []
+
+    t = 0
+    l_cycles = -1
+
+    n_epochs = math.ceil(2*n_cycles*n_s/(X.shape[1]/n_batch))
 
     for i in range(n_epochs):
-        for j in range(0, N, n_batch):
-            grad_W, grad_b = computeGradients(X[:,j:j+n_batch],Y[:,j:j+n_batch],W,l,b)
-            W -= eta*grad_W
-            b -= eta*grad_b
+        for j in range(0, X.shape[1], n_batch):
+            grad_W1, grad_W2, grad_b1, grad_b2 = computeGradients(X[:,j:j+n_batch],Y[:,j:j+n_batch],W1,W2,b1,b2,l)
+            W1 -= eta*grad_W1
+            W2 -= eta*grad_W2
+            b1 -= eta*grad_b1
+            b2 -= eta*grad_b2
+
+            if t % (2 * n_s) == 0:
+                l_cycles += 1
+            
+            eta = cycleETA(t,l_cycles,n_s, eta)
+            t += 1
+
+            if(t % 100 == 0):
+                iterations.append(t)
+                P,_ = evaluateClassifier(X,W1,W2,b1,b2)
+                P_val, _ = evaluateClassifier(X_val,W1,W2,b1,b2)
         
-        P = evaluateClassifier(X,W,b)
-        train_acc.append(computeAccuracy(P,y))
-        train_loss.append(computeCost(P,Y,W,l))
+                train_acc.append(computeAccuracy(P,y))
+                val_acc.append(computeAccuracy(P_val,y_val))
 
-        P_val = evaluateClassifier(X_val,W,b)
-        val_acc.append(computeAccuracy(P_val,y_val))
-        val_loss.append(computeCost(P_val,Y_val,W,l))
+                temp_loss, temp_cost = computeCost(P,Y,W1,W2,l)
+                train_loss.append(temp_loss)
+                train_cost.append(temp_cost)
 
-    P_test = evaluateClassifier(X_test,W,b)
+                temp_loss, temp_cost = computeCost(P_val,Y_val,W1,W2,l)
+                val_loss.append(temp_loss)
+                val_cost.append(temp_cost)
+
+    P_test,_ = evaluateClassifier(X_test,W1,W2,b1,b2)
     test_acc = computeAccuracy(P_test,y_test)
-    test_loss = computeCost(P_test,Y_test,W,l)
+    test_loss = computeCost(P_test,Y_test,W1,W2,l)
 
-    return W, train_acc, train_loss, val_acc, val_loss, test_acc, test_loss
+    return train_acc, train_loss, train_cost, val_acc, val_loss, val_cost, test_acc, test_loss, iterations
 
-def run(l, n_batch, eta, n_epochs):
-    W, b = initialize()
-    W, train_acc, train_loss, val_acc, val_loss, test_acc, test_loss = miniBatch(W,b,l,n_epochs,n_batch,eta)
+def run(l, eta, n_s, n_cycles, data_set):
+    W1,W2,b1,b2 = initialize()
+    train_acc, train_loss, train_cost, val_acc, val_loss, val_cost, test_acc, test_loss, iterations = miniBatch(W1,W2,b1,b2,l,eta,n_s,n_cycles,data_set)
 
     print("Final test accuracy: " + str(test_acc*100) + " %")
     print("Final test loss: " + str(test_loss))
@@ -157,36 +221,39 @@ def run(l, n_batch, eta, n_epochs):
     plt.rcParams['figure.dpi'] = 100
     
     plt.figure(1)
-    plt.plot(train_loss, "r-", label="Training Data")
-    plt.plot(val_loss, "b-", label="Validation Data")
-    plt.title("Loss Per Epoch")
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
+    plt.plot(iterations, train_cost, "r-", label="Training Data")
+    plt.plot(iterations, val_cost, "b-", label="Validation Data")
+    plt.title("Cost")
+    plt.xlabel("Update Step")
+    plt.ylabel("Cost")
     plt.legend()
     plt.grid("true")
     plt.show()
 
     plt.figure(2)
-    plt.plot(train_acc, "r-", label="Training Data")
-    plt.plot(val_acc, "b-", label="Validation Data")
-    plt.title("Accuracy Per Epoch")
-    plt.xlabel("Epoch")
-    plt.ylabel("Accuracy (%)")
+    plt.plot(iterations, train_loss, "r-", label="Training Data")
+    plt.plot(iterations, val_loss, "b-", label="Validation Data")
+    plt.title("Loss")
+    plt.xlabel("Update Step")
+    plt.ylabel("Loss")
     plt.legend()
     plt.grid("true")
     plt.show()
 
     plt.figure(3)
-    for i, j in enumerate(W):
-        plt.subplot(2, 5, i+1)
-        plt.imshow(np.rot90(np.reshape((j - j.min()) / (j.max() - j.min()), (32, 32, 3), order='F'), k=3))
-        plt.axis("off")
+    plt.plot(iterations, train_acc, "r-", label="Training Data")
+    plt.plot(iterations, val_acc, "b-", label="Validation Data")
+    plt.title("Accuracy")
+    plt.xlabel("Update Step")
+    plt.ylabel("Accuracy (%)")
+    plt.legend()
+    plt.grid("true")
     plt.show()
 
 if __name__ == "__main__":
-    X,Y,y = loadBatch("data_batch_1")
-    W1,W2,b1,b2 = initialize()
-    compareGradients(X[:20,0:2], Y[:,0:2], W1[:,0:20], W2, b1, b2, 0)
-    # compareGradients(X[:500,0:100], Y[:,0:100], W[:,:500],l,b)
-    # run(0,100,0.01,40)
+    # X,Y,y = loadBatch("data_batch_1")
+    # W1,W2,b1,b2 = initialize()
+    # compareGradients(X[:20,0:2], Y[:,0:2], W1[:,0:20], W2, b1, b2, 0)
+    # # compareGradients(X[:500,0:100], Y[:,0:100], W[:,:500],l,b)
+    run(0.01,0.01,800,3,"big")
 
