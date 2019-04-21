@@ -1,3 +1,6 @@
+%matplotlib inline
+%config InlineBackend.figure_format = 'retina'
+
 import numpy as np
 import matplotlib.pyplot as plt
 import pickle
@@ -135,8 +138,9 @@ def cycleETA(t, l_cycles, n_s, eta):
     return eta
 
 def getData(data_set):
+    X,Y,y = loadBatch("data_batch_1")
+
     if data_set == "big":
-        X,Y,y = loadBatch("data_batch_1")
         for i in range(2,6):
             X_temp, Y_temp, y_temp = loadBatch("data_batch_" + str(i))
             X = np.append(X,X_temp,axis=1)
@@ -145,8 +149,16 @@ def getData(data_set):
         X,X_val = np.split(X,[45000],axis=1)
         Y,Y_val = np.split(Y,[45000],axis=1)
         y,y_val = np.split(y,[45000],axis=0)
+    elif data_set == "bigger":
+        for i in range(2,6):
+            X_temp, Y_temp, y_temp = loadBatch("data_batch_" + str(i))
+            X = np.append(X,X_temp,axis=1)
+            Y = np.append(Y,Y_temp,axis=1)
+            y = np.append(y,y_temp,axis=0)
+        X,X_val = np.split(X,[49000],axis=1)
+        Y,Y_val = np.split(Y,[49000],axis=1)
+        y,y_val = np.split(y,[49000],axis=0)
     else:
-        X, Y, y = loadBatch("data_batch_1")
         X_val, Y_val, y_val = loadBatch("data_batch_2")
     
     X_test, Y_test, y_test = loadBatch("test_batch")
@@ -210,7 +222,6 @@ def run(l, eta, n_s, n_cycles, data_set):
     train_acc, train_loss, train_cost, val_acc, val_loss, val_cost, test_acc, test_loss, iterations = miniBatch(W1,W2,b1,b2,l,eta,n_s,n_cycles,data_set)
 
     print("Final test accuracy: " + str(test_acc*100) + " %")
-    print("Final test loss: " + str(test_loss))
     
     plt.rcParams['figure.dpi'] = 100
     
@@ -244,7 +255,7 @@ def run(l, eta, n_s, n_cycles, data_set):
     plt.grid("true")
     plt.show()
 
-def courseToFineSearch(n_lambda,lambda_min,lambda_max,eta,n_cycles,data_set):
+def findLambdas(n_lambda,lambda_min,lambda_max,eta,n_cycles):
     lambda_range = lambda_max - lambda_min
     n_s = 2 * math.floor(45000 / n_batch)
     
@@ -254,10 +265,9 @@ def courseToFineSearch(n_lambda,lambda_min,lambda_max,eta,n_cycles,data_set):
     valAcc = []
 
     for i in range(n_lambda):
-        print(str(i) + " ", end="")
         W1,W2,b1,b2 = initialize()
         _lambda = math.pow(10,lambda_min + lambda_range * np.random.rand())
-        train_acc, train_loss, train_cost, val_acc, val_loss, val_cost, test_acc, test_loss, iterations = miniBatch(W1,W2,b1,b2,_lambda,eta,n_s,n_cycles,data_set)
+        train_acc, train_loss, train_cost, val_acc, val_loss, val_cost, test_acc, test_loss, iterations = miniBatch(W1,W2,b1,b2,_lambda,eta,n_s,n_cycles,"big")
         lambdas.append(_lambda)
         testAcc.append(test_acc)
         trainAcc.append(max(train_acc))
@@ -277,10 +287,5 @@ def courseToFineSearch(n_lambda,lambda_min,lambda_max,eta,n_cycles,data_set):
         print()
 
 if __name__ == "__main__":
-    # X,Y,y = loadBatch("data_batch_1")
-    # W1,W2,b1,b2 = initialize()
-    # compareGradients(X[:20,0:2], Y[:,0:2], W1[:,0:20], W2, b1, b2, 0)
-    # # compareGradients(X[:500,0:100], Y[:,0:100], W[:,:500],l,b)
-    # run(0.01,0.01,800,3,"big")
-    courseToFineSearch(15,-5, -1, 0.01, 2, "big")
+    findLambdas(3,-5, -1, 0.01, 2)
 
