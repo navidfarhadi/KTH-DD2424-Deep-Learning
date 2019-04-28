@@ -28,11 +28,13 @@ def loadBatch(filename):
     return X,Y,y
 
 def initialize(hidden_nodes, batch_norm):
+    hidden_nodes.append(k)
+    
     Ws = []
     bs = []
 
     Ws.append(np.random.normal(0.0,1/np.sqrt(d),(hidden_nodes[0],d)))
-    bs.append(np.random.normal(0.0,1/np.sqrt(d),(hidden_nodes[0],1)))
+    bs.append(np.zeros((hidden_nodes[0],1)))
 
     if batch_norm:
         gammas = []
@@ -41,16 +43,23 @@ def initialize(hidden_nodes, batch_norm):
         betas.append(np.random.normal(0.0,1/np.sqrt(d),(hidden_nodes[0],1)))
 
     for layer in range(1,len(hidden_nodes)):
-        Ws.append(np.random.normal(0.0,1/np.sqrt(d),(hidden_nodes[layer],Ws[layer-1].shape[0])))
-        bs.append(np.random.normal(0.0,1/np.sqrt(d),(hidden_nodes[layer],1)))
+        Ws.append(np.random.normal(0.0,np.sqrt(1/Ws[layer-1].shape[0]),(hidden_nodes[layer],Ws[layer-1].shape[0])))
+        bs.append(np.zeros((hidden_nodes[layer],1)))
         if batch_norm and layer < len(hidden_nodes) - 1:
-            gammas.append(np.random.normal(0.0,1/np.sqrt(d),(hidden_nodes[layer],1)))
-            betas.append(np.random.normal(0.0,1/np.sqrt(d),(hidden_nodes[layer],1)))
+            gammas.append(np.random.normal(0.0,np.sqrt(1/Ws[layer-1].shape[0]),(hidden_nodes[layer],1)))
+            betas.append(np.random.normal(0.0,np.sqrt(1/Ws[layer-1].shape[0]),(hidden_nodes[layer],1)))
 
     if batch_norm:
         return Ws, bs, gammas, betas
     
     return Ws, bs, None, None
+
+def shuffle_data(X,Y):
+    index = np.arange(X.shape[1])
+    np.random.shuffle(index)
+    X = X[:, index]
+    Y = Y[:, index]
+    return X, Y
 
 def BatchNormalize(s, mean = None, variance = None):
     if mean is None:
@@ -71,25 +80,28 @@ def BatchNormalizeBackPass(g, S, mean):
 
     return np.subtract(np.subtract(G1,np.sum(G1,axis = 1,keepdims = True)/S.shape[1]),np.multiply(D,c)/S.shape[1])
 
-def evaluateClassifier(X, Ws, bs, gammas, betas, batch_norm=False):
+def evaluateClassifier(X, Ws, bs, gammas, betas, batch_norm):
     hs = [X]
     Ss = []
     S_hats = []
     means = []
     variances = []
 
-    for layer in range(len(Ws) - 1):
-        s = np.dot(Ws[layer],hs[layer]) + bs[layer]
+    n_layers = len(Ws)
+
+    for layer in range(n_layers - 1):
+        Ss.append(np.dot(Ws[layer],hs[layer]) + bs[layer])
         if batch_norm:
-            Ss.append(s)
-            s_hat, mean, variance = BatchNormalize(s)
+            s_hat, mean, variance = BatchNormalize(Ss[layer])
             S_hats.append(s_hat)
             means.append(mean)
             variances.append(variance)
             s = np.multiply(gammas[layer], s_hat) + bs[layer]
-        hs.append(np.maximum(0,s))
+            hs.append(np.maximum(0,s))
+        else:
+            hs.append(np.maximum(0,Ss[layer]))
     
-    s = np.dot(Ws[-1],hs[-1]) + bs[-1]
+    s = np.dot(Ws[n_layers-1],hs[n_layers-1]) + bs[n_layers-1]
     p = np.exp(s) / np.sum(np.exp(s),axis=0)
 
     return p, hs, Ss, S_hats, means, variances
@@ -247,11 +259,11 @@ def compareGradients(X,Y,Ws,bs,gammas,betas,l,batch_norm):
     grad_Ws_num,grad_bs_num,grad_gammas_num,grad_betas_num = computeGradientsNumerically(X,Y,Ws,bs,gammas,betas,l,batch_norm)
 
     for layer in range(len(Ws)):
-        print("Relative error for Layer " + str(layer) + " W: " + str(np.abs(grad_Ws[layer] - grad_Ws_num[layer]).sum()))
-        print("Relative error for Layer " + str(layer) + " b: " + str(np.abs(grad_bs[layer] - grad_bs_num[layer]).sum()))
+        print("Relative error for Layer " + str(layer+1) + " W: " + str(np.abs(grad_Ws[layer] - grad_Ws_num[layer]).sum()))
+        print("Relative error for Layer " + str(layer+1) + " b: " + str(np.abs(grad_bs[layer] - grad_bs_num[layer]).sum()))
         if batch_norm and layer < len(Ws) - 1:
-            print("Relative error for Layer " + str(layer) + " gamma: " + str(np.abs(grad_gammas[layer] - grad_gammas_num[layer]).sum()))
-            print("Relative error for Layer " + str(layer) + " beta: " + str(np.abs(grad_betas[layer] - grad_betas_num[layer]).sum()))
+            print("Relative error for Layer " + str(layer+1) + " gamma: " + str(np.abs(grad_gammas[layer] - grad_gammas_num[layer]).sum()))
+            print("Relative error for Layer " + str(layer+1) + " beta: " + str(np.abs(grad_betas[layer] - grad_betas_num[layer]).sum()))
 
 def cycleETA(t, l_cycles, n_s, eta):
     eta_lower = 2*l_cycles*n_s
@@ -294,7 +306,7 @@ def getData(data_set):
 
     return X, Y, y, X_val, Y_val, y_val, X_test, Y_test, y_test
     
-def miniBatch(W1, W2, b1, b2, l, eta, n_s, n_cycles, data_set):
+def miniBatch(Ws, bs, gammas, betas, l, eta, n_s, n_cycles, data_set, batch_norm):
     X, Y, y, X_val, Y_val, y_val, X_test, Y_test, y_test = getData(data_set)
 
     train_acc = []
@@ -307,16 +319,24 @@ def miniBatch(W1, W2, b1, b2, l, eta, n_s, n_cycles, data_set):
 
     t = 0
     l_cycles = -1
+    n_layers = len(Ws)
 
     n_epochs = math.ceil(2*n_cycles*n_s/(X.shape[1]/n_batch))
 
     for i in range(n_epochs):
+        shuffle_data(X,Y)
         for j in range(0, X.shape[1], n_batch):
-            grad_W1, grad_W2, grad_b1, grad_b2 = computeGradients(X[:,j:j+n_batch],Y[:,j:j+n_batch],W1,W2,b1,b2,l)
-            W1 -= eta*grad_W1
-            W2 -= eta*grad_W2
-            b1 -= eta*grad_b1
-            b2 -= eta*grad_b2
+            grad_Ws, grad_bs, grad_gammas, grad_betas = computeGradients(X[:,j:j+n_batch],Y[:,j:j+n_batch],Ws,bs,gammas,betas,l,batch_norm)
+
+            for layer in range(n_layers):
+                Ws[layer] -= eta*grad_Ws[layer]
+                bs[layer] -= eta*grad_bs[layer]
+                if batch_norm:
+                    if layer == n_layers - 1:
+                        break
+                    else:
+                        gammas[layer] -= eta*grad_gammas[layer]
+                        betas[layer] -= eta*grad_betas[layer]
 
             if t % (2 * n_s) == 0:
                 l_cycles += 1
@@ -326,29 +346,31 @@ def miniBatch(W1, W2, b1, b2, l, eta, n_s, n_cycles, data_set):
 
             if(t % 100 == 0):
                 iterations.append(t)
-                P,_ = evaluateClassifier(X,W1,W2,b1,b2)
-                P_val, _ = evaluateClassifier(X_val,W1,W2,b1,b2)
+                P,_,_,_,_,_ = evaluateClassifier(X, Ws, bs, gammas, betas, batch_norm)
+                P_val,_,_,_,_,_ = evaluateClassifier(X_val, Ws, bs, gammas, betas, batch_norm)
         
                 train_acc.append(computeAccuracy(P,y))
                 val_acc.append(computeAccuracy(P_val,y_val))
 
-                temp_loss, temp_cost = computeCost(P,Y,W1,W2,l)
+                temp_loss, temp_cost = computeCost(P, Y, Ws, l)
                 train_loss.append(temp_loss)
                 train_cost.append(temp_cost)
 
-                temp_loss, temp_cost = computeCost(P_val,Y_val,W1,W2,l)
+                temp_loss, temp_cost = computeCost(P_val, Y_val, Ws, l)
                 val_loss.append(temp_loss)
                 val_cost.append(temp_cost)
 
-    P_test,_ = evaluateClassifier(X_test,W1,W2,b1,b2)
+    P_test,_,_,_,_,_ = evaluateClassifier(X_test,Ws,bs,gammas,betas,batch_norm)
     test_acc = computeAccuracy(P_test,y_test)
-    test_loss = computeCost(P_test,Y_test,W1,W2,l)
+    test_loss = computeCost(P_test,Y_test,Ws,l)
 
     return train_acc, train_loss, train_cost, val_acc, val_loss, val_cost, test_acc, test_loss, iterations
 
-def run(l, eta, n_s, n_cycles, data_set):
-    W1,W2,b1,b2 = initialize()
-    train_acc, train_loss, train_cost, val_acc, val_loss, val_cost, test_acc, test_loss, iterations = miniBatch(W1,W2,b1,b2,l,eta,n_s,n_cycles,data_set)
+def run(hidden_nodes, l, n_cycles, data_set,batch_norm):
+    Ws, bs, gammas, betas = initialize(hidden_nodes,batch_norm)
+    n_s = 5*45000/n_batch
+    eta = 0.00001
+    train_acc, train_loss, train_cost, val_acc, val_loss, val_cost, test_acc, test_loss, iterations = miniBatch(Ws, bs, gammas, betas, l, eta, n_s, n_cycles, data_set, batch_norm)
 
     print("Final test accuracy: " + str(test_acc*100) + " %")
     
@@ -384,7 +406,7 @@ def run(l, eta, n_s, n_cycles, data_set):
     plt.grid("true")
     plt.show()
 
-def findLambdas(n_lambda,lambda_min,lambda_max,eta,n_cycles):
+def findLambdas(hidden_nodes,n_lambda,lambda_min,lambda_max,eta,n_cycles,batch_norm):
     lambda_range = lambda_max - lambda_min
     n_s = 2 * math.floor(45000 / n_batch)
     
@@ -394,9 +416,9 @@ def findLambdas(n_lambda,lambda_min,lambda_max,eta,n_cycles):
     valAcc = []
 
     for i in range(n_lambda):
-        W1,W2,b1,b2 = initialize()
+        Ws, bs, gammas, betas = initialize(hidden_nodes,batch_norm)
         _lambda = math.pow(10,lambda_min + lambda_range * np.random.rand())
-        train_acc, train_loss, train_cost, val_acc, val_loss, val_cost, test_acc, test_loss, iterations = miniBatch(W1,W2,b1,b2,_lambda,eta,n_s,n_cycles,"big")
+        train_acc, train_loss, train_cost, val_acc, val_loss, val_cost, test_acc, test_loss, iterations = miniBatch(Ws,bs,gammas,betas,_lambda,eta,n_s,n_cycles,"big",batch_norm)
         lambdas.append(_lambda)
         testAcc.append(test_acc)
         trainAcc.append(max(train_acc))
@@ -417,14 +439,14 @@ def findLambdas(n_lambda,lambda_min,lambda_max,eta,n_cycles):
 
 if __name__ == "__main__":
     # findLambdas(3,-5, -1, 0.01, 2)
-    X,Y,y = loadBatch("data_batch_1")
-    Ws, bs, gammas, betas = initialize([50,50,50],True)
+    # X,Y,y = loadBatch("data_batch_1")
+    # Ws, bs, gammas, betas = initialize([15,15],False)
     # X_reduced = X[:10 , 0:2]
     # Y_reduced = Y[: , 0:2]
     # W_reduced = list()
     # W_reduced.append (Ws[0][: , :10] )
-    # W_reduced.append (Ws[1][: , :10] )
-    # W_reduced.append (Ws[2][: , :10] )
-    # compareGradients(X_reduced,Y_reduced,W_reduced,bs,gammas,betas,0.0,True)
-    compareGradients(X,Y,Ws,bs,gammas,betas,0.0,True)
+    # W_reduced.append (Ws[1])
+    # W_reduced.append (Ws[2])
+    # compareGradients(X_reduced,Y_reduced,W_reduced,bs,gammas,betas,0.0,False)
+    run([50],0.01,3,"small",True)
 
