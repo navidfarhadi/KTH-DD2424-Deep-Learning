@@ -27,14 +27,18 @@ def loadBatch(filename):
     fo.close()
     return X,Y,y
 
-def initialize(hidden_nodes, batch_norm):
+def initialize(hidden_nodes, batch_norm, use_sigmas, sigma):
     hidden_nodes.append(k)
     
     Ws = []
     bs = []
-
-    Ws.append(np.random.normal(0.0,1/np.sqrt(d),(hidden_nodes[0],d)))
+    
     bs.append(np.zeros((hidden_nodes[0],1)))
+    
+    if len(hidden_nodes) == 3 and use_sigmas is True:
+        Ws.append(np.random.normal(0.0,sigma,(hidden_nodes[0],d)))
+    else:
+        Ws.append(np.random.normal(0.0,1/np.sqrt(d),(hidden_nodes[0],d)))
 
     if batch_norm:
         gammas = []
@@ -43,8 +47,11 @@ def initialize(hidden_nodes, batch_norm):
         betas.append(np.random.normal(0.0,1/np.sqrt(d),(hidden_nodes[0],1)))
 
     for layer in range(1,len(hidden_nodes)):
-        Ws.append(np.random.normal(0.0,np.sqrt(1/Ws[layer-1].shape[0]),(hidden_nodes[layer],Ws[layer-1].shape[0])))
         bs.append(np.zeros((hidden_nodes[layer],1)))
+        if len(hidden_nodes) == 3 and use_sigmas is True:
+            Ws.append(np.random.normal(0.0,sigma,(hidden_nodes[layer],Ws[layer-1].shape[0])))
+        else:
+            Ws.append(np.random.normal(0.0,np.sqrt(1/Ws[layer-1].shape[0]),(hidden_nodes[layer],Ws[layer-1].shape[0])))
         if batch_norm and layer < len(hidden_nodes) - 1:
             gammas.append(np.random.normal(0.0,np.sqrt(1/Ws[layer-1].shape[0]),(hidden_nodes[layer],1)))
             betas.append(np.random.normal(0.0,np.sqrt(1/Ws[layer-1].shape[0]),(hidden_nodes[layer],1)))
@@ -366,8 +373,8 @@ def miniBatch(Ws, bs, gammas, betas, l, eta, n_s, n_cycles, data_set, batch_norm
 
     return train_acc, train_loss, train_cost, val_acc, val_loss, val_cost, test_acc, test_loss, iterations
 
-def run(hidden_nodes, l, n_cycles, data_set,batch_norm):
-    Ws, bs, gammas, betas = initialize(hidden_nodes,batch_norm)
+def run(hidden_nodes, l, n_cycles, data_set,batch_norm,use_sigmas,sigma):
+    Ws, bs, gammas, betas = initialize(hidden_nodes,batch_norm,use_sigmas,sigma)
     n_s = 5*45000/n_batch
     eta = 0.00001
     train_acc, train_loss, train_cost, val_acc, val_loss, val_cost, test_acc, test_loss, iterations = miniBatch(Ws, bs, gammas, betas, l, eta, n_s, n_cycles, data_set, batch_norm)
@@ -406,9 +413,10 @@ def run(hidden_nodes, l, n_cycles, data_set,batch_norm):
     plt.grid("true")
     plt.show()
 
-def findLambdas(hidden_nodes,n_lambda,lambda_min,lambda_max,eta,n_cycles,batch_norm):
+def findLambdas(hidden_nodes,n_lambda,lambda_min,lambda_max,n_cycles,batch_norm):
     lambda_range = lambda_max - lambda_min
-    n_s = 2 * math.floor(45000 / n_batch)
+    n_s = 5*45000/n_batch
+    eta = 0.00001
     
     lambdas = []
     testAcc = []
@@ -416,7 +424,7 @@ def findLambdas(hidden_nodes,n_lambda,lambda_min,lambda_max,eta,n_cycles,batch_n
     valAcc = []
 
     for i in range(n_lambda):
-        Ws, bs, gammas, betas = initialize(hidden_nodes,batch_norm)
+        Ws, bs, gammas, betas = initialize(hidden_nodes,batch_norm,False,None)
         _lambda = math.pow(10,lambda_min + lambda_range * np.random.rand())
         train_acc, train_loss, train_cost, val_acc, val_loss, val_cost, test_acc, test_loss, iterations = miniBatch(Ws,bs,gammas,betas,_lambda,eta,n_s,n_cycles,"big",batch_norm)
         lambdas.append(_lambda)
@@ -427,7 +435,6 @@ def findLambdas(hidden_nodes,n_lambda,lambda_min,lambda_max,eta,n_cycles,batch_n
     results = sorted(zip(valAcc,testAcc,trainAcc,lambdas), reverse=True)[:3]
     print()
     print("Three Best Performing Networks (by validation accuracy) ")
-    print("eta = " + str(eta) + ", n_cycles = " + str(n_cycles) + ", n_s = " + str(n_s))
     print("---")
 
     for valacc,testacc,trainacc,_l in results:
@@ -438,15 +445,8 @@ def findLambdas(hidden_nodes,n_lambda,lambda_min,lambda_max,eta,n_cycles,batch_n
         print()
 
 if __name__ == "__main__":
-    # findLambdas(3,-5, -1, 0.01, 2)
-    # X,Y,y = loadBatch("data_batch_1")
-    # Ws, bs, gammas, betas = initialize([15,15],False)
-    # X_reduced = X[:10 , 0:2]
-    # Y_reduced = Y[: , 0:2]
-    # W_reduced = list()
-    # W_reduced.append (Ws[0][: , :10] )
-    # W_reduced.append (Ws[1])
-    # W_reduced.append (Ws[2])
-    # compareGradients(X_reduced,Y_reduced,W_reduced,bs,gammas,betas,0.0,False)
-    run([50],0.01,3,"small",True)
+    X,Y,y = loadBatch("data_batch_1")
+    Ws, bs, gammas, betas = initialize([10,10],True,False,None)
+    Ws[0] = Ws[0][:,:10]
+    compareGradients(X[:10,:],Y,Ws,bs,gammas,betas,0.0,True)
 
