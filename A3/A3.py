@@ -103,7 +103,7 @@ def evaluateClassifier(X, Ws, bs, gammas, betas, batch_norm):
             S_hats.append(s_hat)
             means.append(mean)
             variances.append(variance)
-            s = np.multiply(gammas[layer], s_hat) + bs[layer]
+            s = np.multiply(gammas[layer], s_hat) + betas[layer]
             hs.append(np.maximum(0,s))
         else:
             hs.append(np.maximum(0,Ss[layer]))
